@@ -122,11 +122,11 @@
     </div>
 
     <script type="module">
-        // 1. IMPORT DARI CDN BROWSER (BUKAN NPM)
+        // 1. IMPORT DARI CDN BROWSER
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getDatabase, ref, set, get, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
-        // 2. FIREBASE CONFIG KAMU
+        // 2. FIREBASE CONFIG MILIKMU
         const firebaseConfig = {
             apiKey: "AIzaSyD7-9h9ut1u1TUB1hCMhhWGqW6-yMLDvCk",
             authDomain: "wordle-mabar-2417d.firebaseapp.com",
@@ -135,7 +135,6 @@
             messagingSenderId: "227454413033",
             appId: "1:227454413033:web:f56501a90a593b6279e878",
             measurementId: "G-JS0R22BZ6Q",
-            // Tambahan wajib untuk Realtime Database:
             databaseURL: "https://wordle-mabar-2417d-default-rtdb.firebaseio.com"
         };
 
