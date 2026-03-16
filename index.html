@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wordle Mabar - Multiplayer Live!</title>
+    <title>Wordle Mabar - Live Sync!</title>
     
     <style>
         /* --- VARIABEL WARNA (DARK MODE MODERN) --- */
@@ -88,7 +88,7 @@
         <div class="modal">
             <h2>WORDLE MABAR</h2>
             <p id="loading-text" style="color: var(--present); font-size: 14px; margin-bottom: 20px;">Memuat Kamus Server...</p>
-            <input type="text" id="player-name" class="name-input" placeholder="Nama Panggilanmu..." maxlength="8" disabled>
+            <input type="text" id="player-name" class="name-input" placeholder="Nama Panggilan..." maxlength="8" disabled>
             <button id="join-btn" class="btn-primary" disabled>JOIN ROOM</button>
         </div>
     </div>
@@ -122,11 +122,10 @@
     </div>
 
     <script type="module">
-        // 1. IMPORT DARI CDN BROWSER
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getDatabase, ref, set, get, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+        // TAMBAHAN: onDisconnect untuk menghapus hantu dari database
+        import { getDatabase, ref, set, get, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
-        // 2. FIREBASE CONFIG MILIKMU
         const firebaseConfig = {
             apiKey: "AIzaSyD7-9h9ut1u1TUB1hCMhhWGqW6-yMLDvCk",
             authDomain: "wordle-mabar-2417d.firebaseapp.com",
@@ -135,24 +134,16 @@
             messagingSenderId: "227454413033",
             appId: "1:227454413033:web:f56501a90a593b6279e878",
             measurementId: "G-JS0R22BZ6Q",
-            // INI DIA YANG BENAR:
             databaseURL: "https://wordle-mabar-2417d-default-rtdb.asia-southeast1.firebasedatabase.app"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // Referensi Database
         const playersRef = ref(db, 'room1/players');
         const gameStateRef = ref(db, 'room1/gameState');
 
-        // --- STATE GAME LOKAL ---
-        const commonWords = [
-            "APPLE", "WATER", "HOUSE", "MUSIC", "BOARD", "DREAM", "SMILE", "NIGHT", "LIGHT", "HEART",
-            "TRAIN", "PLANT", "SPACE", "DANCE", "GHOST", "PIZZA", "RIVER", "STONE", "BEACH", "CLOCK",
-            "AUDIO", "TRACK", "BEATS", "VOCAL", "COLOR", "SHAPE", "PIXEL", "BRUSH", "DRAFT", "START", 
-            "PRESS", "CLICK", "MOUSE", "YOUTH", "PEACE", "TRUTH", "TRUST", "VALUE", "VOICE", "EARTH"
-        ];
+        const commonWords = ["APPLE", "WATER", "HOUSE", "MUSIC", "BOARD", "DREAM", "SMILE", "NIGHT", "LIGHT", "HEART", "TRAIN", "PLANT", "SPACE", "DANCE", "GHOST", "PIZZA", "RIVER", "STONE", "BEACH", "CLOCK", "AUDIO", "TRACK", "BEATS", "VOCAL", "COLOR", "SHAPE", "PIXEL", "BRUSH", "DRAFT", "START", "PRESS", "CLICK", "MOUSE", "YOUTH", "PEACE", "TRUTH", "TRUST", "VALUE", "VOICE", "EARTH"];
         
         let validWords = new Set();
         let targetWord = "";
@@ -165,7 +156,6 @@
         let isMyTurnDone = false;
         let roomPlayers = {}; 
 
-        // DOM Elements
         const board = document.getElementById("board");
         const keyboard = document.getElementById("keyboard");
         const introScreen = document.getElementById("intro-screen");
@@ -173,7 +163,6 @@
         const resultScreen = document.getElementById("result-screen");
         const playersContainer = document.getElementById("players-container");
 
-        // --- INISIALISASI GAME ---
         function initGame() {
             fetch("https://raw.githubusercontent.com/dwyl/english-words/refs/heads/master/words.txt")
                 .then(res => res.text())
@@ -226,50 +215,58 @@
             });
         }
 
-        // --- TOMBOL JOIN ---
         document.getElementById("join-btn").onclick = async () => {
             const inputName = document.getElementById("player-name").value.trim().toUpperCase();
             if (inputName.length < 2) return alert("Nama minimal 2 huruf!");
             myName = inputName;
             introScreen.classList.add("hidden");
             
-            // Cek apakah di database udah ada kata yang lagi dimainin
-            const gameSnap = await get(gameStateRef);
-            if (gameSnap.exists() && gameSnap.val().currentWord) {
-                targetWord = gameSnap.val().currentWord; // Pakai kata yang udah ada
-            } else {
-                // Kalau room kosong, kita yang tentukan katanya!
-                targetWord = commonWords[Math.floor(Math.random() * commonWords.length)];
-                set(gameStateRef, { currentWord: targetWord });
-            }
-            console.log("Ssttt, Kata Ronde Ini:", targetWord);
+            try {
+                // CEK KATA (Akan error ke 'catch' kalau rules Firebase ditutup)
+                const gameSnap = await get(gameStateRef);
+                if (gameSnap.exists() && gameSnap.val().currentWord) {
+                    targetWord = gameSnap.val().currentWord;
+                } else {
+                    targetWord = commonWords[Math.floor(Math.random() * commonWords.length)];
+                    set(gameStateRef, { currentWord: targetWord });
+                }
+                console.log("Kata Ronde Ini:", targetWord);
 
-            // Daftar ke Database
-            updateMyStatus("PLAYING", []);
+                // FITUR SAKTI: Hapus data otomatis kalau user close tab / keluar
+                const myPlayerRef = ref(db, 'room1/players/' + myName);
+                onDisconnect(myPlayerRef).remove();
 
-            // 1. Dengerin Pergerakan Pemain Lain
-            onValue(playersRef, (snapshot) => {
-                if (snapshot.exists()) {
-                    roomPlayers = snapshot.val();
+                updateMyStatus("PLAYING", []);
+
+                // SINKRONISASI PEMAIN LAIN
+                onValue(playersRef, (snapshot) => {
+                    if (snapshot.exists()) {
+                        roomPlayers = snapshot.val();
+                    } else {
+                        roomPlayers = {}; // Kosongkan jika semua keluar
+                    }
                     renderSidebar();
                     checkIfAllDone();
-                }
-            });
+                });
 
-            // 2. Dengerin Kalau Kata Berubah (Tanda Ronde Baru)
-            onValue(gameStateRef, (snapshot) => {
-                if (snapshot.exists() && snapshot.val().currentWord) {
-                    let newWord = snapshot.val().currentWord;
-                    // Kalau kata di server beda dengan lokal, berarti ronde baru mulai
-                    if (newWord !== targetWord && isMyTurnDone) {
-                        targetWord = newWord;
-                        resetForNextRound();
+                // SINKRONISASI RONDE BARU
+                onValue(gameStateRef, (snapshot) => {
+                    if (snapshot.exists() && snapshot.val().currentWord) {
+                        let newWord = snapshot.val().currentWord;
+                        if (newWord !== targetWord && isMyTurnDone) {
+                            targetWord = newWord;
+                            resetForNextRound();
+                        }
                     }
-                }
-            });
+                });
+
+            } catch (error) {
+                console.error("Firebase Error:", error);
+                alert("Gagal Terhubung ke Database! Cek Rules Firebase (harus true).");
+                introScreen.classList.remove("hidden");
+            }
         };
 
-        // --- LOGIKA GAME ---
         function handleInput(key) {
             if (isMyTurnDone) return;
             
@@ -341,8 +338,12 @@
             currentGuess = "";
         }
 
-        // --- UPDATE KE DATABASE ---
         function updateMyStatus(status, progress) {
+            // Update paksa secara lokal biar UI merespons seketika
+            roomPlayers[myName] = { status: status, progress: progress };
+            renderSidebar();
+
+            // Push ke Firebase
             set(ref(db, 'room1/players/' + myName), {
                 status: status,
                 progress: progress
@@ -350,16 +351,16 @@
 
             if (status === "DONE") {
                 waitingScreen.classList.remove("hidden");
+                checkIfAllDone();
             }
         }
 
-        // --- RENDER SIDEBAR ---
         function renderSidebar() {
             playersContainer.innerHTML = "";
             for (let pName in roomPlayers) {
                 let data = roomPlayers[pName];
                 let gridHTML = "";
-                if (data.progress) {
+                if (data.progress && data.progress.length > 0) {
                     data.progress.forEach(row => {
                         gridHTML += `<div class="mini-row">`;
                         row.forEach(stat => {
@@ -385,7 +386,6 @@
             }
         }
 
-        // --- CEK SEMUA PEMAIN ---
         function checkIfAllDone() {
             let allDone = true;
             let totalPlayers = 0;
@@ -417,8 +417,6 @@
                 `;
             }
 
-            // Hitung mundur cuma jalan di komputer satu orang (Host de facto) supaya gak tabrakan servernya
-            // Yang pertama masuk list (secara abjad) jadi host pemilih kata
             let playerNames = Object.keys(roomPlayers).sort();
             if (myName === playerNames[0]) {
                 let timer = 5;
@@ -428,7 +426,6 @@
                     document.getElementById("countdown").textContent = timer;
                     if (timer <= 0) {
                         clearInterval(iv);
-                        // Acak kata baru dan kirim ke server (ini akan mentrigger semua orang buat reset)
                         let newWord = commonWords[Math.floor(Math.random() * commonWords.length)];
                         set(gameStateRef, { currentWord: newWord });
                     }
